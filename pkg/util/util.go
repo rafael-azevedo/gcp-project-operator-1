@@ -72,6 +72,24 @@ func NewGCPSecretCR(namespace, creds string) *corev1.Secret {
 	}
 }
 
+// NewGCPSecretCRV2 returns a Secret CR formatted for GCP for use in projectreference controller until refactor
+func NewGCPSecretCRV2(creds string, namespacedNamed kubetypes.NamespacedName) *corev1.Secret {
+	return &corev1.Secret{
+		Type: "Opaque",
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Secret",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      namespacedNamed.Name,
+			Namespace: namespacedNamed.Namespace,
+		},
+		Data: map[string][]byte{
+			"osServiceAccount.json": []byte(creds),
+		},
+	}
+}
+
 func GetGCPCredentialsFromSecret(kubeClient kubeclientpkg.Client, namespace, name string) ([]byte, error) {
 	secret := &corev1.Secret{}
 	err := kubeClient.Get(context.TODO(),
