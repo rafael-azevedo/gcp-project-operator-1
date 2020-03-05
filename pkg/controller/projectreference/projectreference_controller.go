@@ -113,26 +113,14 @@ func (r *ReconcileProjectReference) Reconcile(request reconcile.Request) (reconc
 		return r.requeueOnErr(err)
 	}
 
-	var gcpClient gcpclient.Client
-	// Create client with projectID if projectID exists in projectReference
-	switch projectReference.Spec.GCPProjectID {
-	case "":
-		// Get gcpclient with creds and no projectID
-		gcpClient, err = r.gcpClientBuilder("", creds)
-		if err != nil {
-			reqLogger.Error(err, "could not get gcp client with secret creds", "Secret Name", orgGcpSecretName, "Operator Namespace", operatorNamespace)
-			return r.requeueOnErr(err)
-		}
-	default:
-		// Get gcpclient with creds and  projectID
-		gcpClient, err = r.gcpClientBuilder(projectReference.Spec.GCPProjectID, creds)
-		if err != nil {
-			reqLogger.Error(err, "could not get gcp client with secret creds", "Secret Name", orgGcpSecretName, "Operator Namespace", operatorNamespace)
-			return r.requeueOnErr(err)
-		}
+	// Get gcpclient with creds
+	gcpClient, err := r.gcpClientBuilder(projectReference.Spec.GCPProjectID, creds)
+	if err != nil {
+		reqLogger.Error(err, "could not get gcp client with secret creds", "Secret Name", orgGcpSecretName, "Operator Namespace", operatorNamespace)
+		return r.requeueOnErr(err)
 	}
 
-	adapter, err := newReferenceAdapater(projectReference, reqLogger, r.client, gcpClient)
+	adapter, err := newReferenceAdapter(projectReference, reqLogger, r.client, gcpClient)
 	if err != nil {
 		reqLogger.Error(err, "could not create ReferenceAdapter")
 		return r.requeueOnErr(err)
@@ -143,11 +131,7 @@ func (r *ReconcileProjectReference) Reconcile(request reconcile.Request) (reconc
 	// If we are in a creating state break from the loop and conitnue to process CR
 	case projectReference.Status.State == gcpv1alpha1.ProjectReferenceStatusCreating:
 		break
-	// If projectReference is in an unrecoverable error state do not process
-	case projectReference.Status.State == gcpv1alpha1.ProjectReferenceStatusReady && adapter.projectClaim.Status.State == gcpv1alpha1.ClaimStatusVerification:
-		reqLogger.Info("ProjectReference CR in READY state waiting for ProjectCalim Verification.")
-		return r.doNotRequeue()
-		// If projectReference is in an unrecoverable error state do not process
+	// If projectReference and projectClaim are both ready there is nothing to do
 	case projectReference.Status.State == gcpv1alpha1.ProjectReferenceStatusReady && adapter.projectClaim.Status.State == gcpv1alpha1.ClaimStatusReady:
 		reqLogger.Info("ProjectReference CR in READY state nothing to process.")
 		return r.doNotRequeue()
@@ -227,25 +211,25 @@ func (r *ReconcileProjectReference) Reconcile(request reconcile.Request) (reconc
 	}
 
 	reqLogger.Info("Configuring APIS")
-	// Set condition billing has been created and skip that this step if condition is true
+	// TODO() Set condition billing has been created and skip that this step if condition is true
 	err = adapter.configureAPIS()
 	if err != nil {
 		reqLogger.Error(err, "Error configuring APIS")
-		return r.requeueAfter(5 * time.Second)
+		return r.requeueAfter(5*time.Second, err)
 	}
 
 	reqLogger.Info("Configuring Service Account")
 	err = adapter.configureSeriveAccount()
 	if err != nil {
 		reqLogger.Error(err, "Error configuring service account")
-		return r.requeueAfter(5 * time.Second)
+		return r.requeueAfter(5*time.Second, err)
 	}
 
 	reqLogger.Info("Creating Credentials")
 	err = adapter.createCredentials()
 	if err != nil {
 		reqLogger.Error(err, "Error creating credentials")
-		return r.requeueAfter(5 * time.Second)
+		return r.requeueAfter(5*time.Second, err)
 	}
 
 	log.Info("Setting Status on projectReference")
@@ -256,7 +240,7 @@ func (r *ReconcileProjectReference) Reconcile(request reconcile.Request) (reconc
 		return r.requeueOnErr(err)
 	}
 
-	return reconcile.Result{}, nil
+	return r.doNotRequeue()
 }
 
 func (r *ReconcileProjectReference) doNotRequeue() (reconcile.Result, error) {
@@ -271,6 +255,6 @@ func (r *ReconcileProjectReference) requeue() (reconcile.Result, error) {
 	return reconcile.Result{Requeue: true}, nil
 }
 
-func (r *ReconcileProjectReference) requeueAfter(duration time.Duration) (reconcile.Result, error) {
-	return reconcile.Result{RequeueAfter: duration}, nil
+func (r *ReconcileProjectReference) requeueAfter(duration time.Duration, err error) (reconcile.Result, error) {
+	return reconcile.Result{RequeueAfter: duration}, err
 }

@@ -35,8 +35,13 @@ var OSDRequiredAPIS = []string{
 	"dns.googleapis.com",
 	"iam.googleapis.com",
 	"compute.googleapis.com",
+	"cloudapis.googleapis.com",
+	"iamcredentials.googleapis.com",
+	"servicemanagement.googleapis.com",
 }
 
+// OSDRequiredRoles is a list of Roles that a service account
+// required to setup Openshift cluster
 var OSDRequiredRoles = []string{
 	"roles/storage.admin",
 	"roles/iam.serviceAccountUser",
@@ -49,30 +54,33 @@ var OSDRequiredRoles = []string{
 
 // Regions supported in the gcp-project-operator
 var supportedRegions = map[string]bool{
-	"asia-east1":              true,
-	"asia-east2":              true,
-	"asia-northeast1":         true,
-	"asia-northeast2":         true,
-	"asia-south1":             true,
-	"asia-southeast1":         true,
-	"australia-southeast1":    true,
-	"europe-north1":           true,
-	"europe-west1":            true,
-	"europe-west2":            true,
-	"europe-west3":            true,
-	"europe-west4":            true,
-	"europe-west6":            true,
-	"northamerica-northeast1": true,
-	"southamerica-east1":      true,
-	"us-central1":             true,
-	"us-east1":                true,
-	"us-east4":                true,
-	"us-west1":                true,
-	"us-west2":                true,
+	"asia-east1":      true,
+	"asia-northeast1": true,
+	"asia-southeast1": true,
+	"europe-west1":    true,
+	"europe-west4":    true,
+	"us-central1":     true,
+	"us-east1":        true,
+	"us-east4":        true,
+	"us-west1":        true,
+
+	// The regions below are all currently
+	// They do not have enough quota configured by default
+	// "asia-east2":              true,
+	// "asia-northeast2":         true,
+	// "asia-south1":             true,
+	// "australia-southeast1":    true,
+	// "europe-north1":           true,
+	// "europe-west2":            true,
+	// "europe-west3":            true,
+	// "europe-west6":            true,
+	// "northamerica-northeast1": true,
+	// "southamerica-east1":      true,
+	// "us-west2":                true,
 }
 
-//ReferenceAdapater is used to do all the processing of the ProjectReference type inside the reconcile loop
-type ReferenceAdapater struct {
+//ReferenceAdapter is used to do all the processing of the ProjectReference type inside the reconcile loop
+type ReferenceAdapter struct {
 	projectClaim     *gcpv1alpha1.ProjectClaim
 	projectReference *gcpv1alpha1.ProjectReference
 	logger           logr.Logger
@@ -80,12 +88,12 @@ type ReferenceAdapater struct {
 	gcpClient        gcpclient.Client
 }
 
-func newReferenceAdapater(projectReference *gcpv1alpha1.ProjectReference, logger logr.Logger, client client.Client, gcpClient gcpclient.Client) (*ReferenceAdapater, error) {
+func newReferenceAdapter(projectReference *gcpv1alpha1.ProjectReference, logger logr.Logger, client client.Client, gcpClient gcpclient.Client) (*ReferenceAdapter, error) {
 	projectClaim, err := getMatchingClaimLink(projectReference, client)
 	if err != nil {
-		return &ReferenceAdapater{}, err
+		return &ReferenceAdapter{}, err
 	}
-	return &ReferenceAdapater{
+	return &ReferenceAdapter{
 		projectClaim:     projectClaim,
 		projectReference: projectReference,
 		logger:           logger,
@@ -105,7 +113,7 @@ func getMatchingClaimLink(projectReference *gcpv1alpha1.ProjectReference, client
 }
 
 // updateProjectID updates the ProjectReference with a unique ID for the ProjectID
-func (r *ReferenceAdapater) updateProjectID() error {
+func (r *ReferenceAdapter) updateProjectID() error {
 	guid := uuid.New().String()
 	hashing := sha1.New()
 	hashing.Write([]byte(guid))
@@ -116,20 +124,20 @@ func (r *ReferenceAdapater) updateProjectID() error {
 }
 
 // updateProjectID updates the ProjectReference with a unique ID for the ProjectID
-func (r *ReferenceAdapater) clearProjectID() error {
+func (r *ReferenceAdapter) clearProjectID() error {
 	r.projectReference.Spec.GCPProjectID = ""
 	return r.kubeClient.Update(context.TODO(), r.projectReference)
 }
 
 // checkRequirements checks that region is supported
-func (r *ReferenceAdapater) checkRequirements() error {
+func (r *ReferenceAdapter) checkRequirements() error {
 	if _, ok := supportedRegions[r.projectClaim.Spec.Region]; !ok {
 		return operrors.ErrRegionNotSupported
 	}
 	return nil
 }
 
-func (r *ReferenceAdapater) createProject(parentFolderID string) error {
+func (r *ReferenceAdapter) createProject(parentFolderID string) error {
 	// Get existing projects
 	projects, err := r.gcpClient.ListProjects()
 	if err != nil {
@@ -150,14 +158,13 @@ func (r *ReferenceAdapater) createProject(parentFolderID string) error {
 			return operrors.ErrUnexpectedLifecycleState
 
 		}
-		return nil
 	}
 
 	r.logger.Info("Creating Project")
 	// If we cannot create the project clear the projectID from spec so we can try again with another unique key
 	_, err = r.gcpClient.CreateProject(parentFolderID)
 	if err != nil {
-		r.logger.Error(err, "could create project", "Parent Folder ID", parentFolderID, "Requested Project ID", r.projectReference.Spec.GCPProjectID)
+		r.logger.Error(err, "could not create project", "Parent Folder ID", parentFolderID, "Requested Project ID", r.projectReference.Spec.GCPProjectID)
 		r.logger.Info("Clearing gcpProjectID from ProjectReferenceSpec")
 		err = r.clearProjectID()
 		if err != nil {
@@ -169,7 +176,7 @@ func (r *ReferenceAdapater) createProject(parentFolderID string) error {
 	return nil
 }
 
-func (r *ReferenceAdapater) configureAPIS() error {
+func (r *ReferenceAdapter) configureAPIS() error {
 	billingAccount, err := util.GetBillingAccountFromSecret(r.kubeClient, operatorNamespace, orgGcpSecretName)
 	if err != nil {
 		r.logger.Error(err, "Could not get org billingAccount from secret", "Secret Name", orgGcpSecretName, "Operator Namespace", operatorNamespace)
@@ -202,7 +209,7 @@ func (r *ReferenceAdapater) configureAPIS() error {
 	return nil
 }
 
-func (r *ReferenceAdapater) configureSeriveAccount() error {
+func (r *ReferenceAdapter) configureSeriveAccount() error {
 	// See if GCP service account exists if not create it
 	var serviceAccount *iam.ServiceAccount
 	serviceAccount, err := r.gcpClient.GetServiceAccount(osdServiceAccountName)
@@ -211,7 +218,7 @@ func (r *ReferenceAdapater) configureSeriveAccount() error {
 		r.logger.Info("Creating Service Account")
 		account, err := r.gcpClient.CreateServiceAccount(osdServiceAccountName, osdServiceAccountName)
 		if err != nil {
-			r.logger.Error(err, "Could create service account", "Service Account Name", osdServiceAccountName)
+			r.logger.Error(err, "could not create service account", "Service Account Name", osdServiceAccountName)
 			return err
 		}
 		serviceAccount = account
@@ -226,16 +233,7 @@ func (r *ReferenceAdapater) configureSeriveAccount() error {
 	return nil
 }
 
-func (r *ReferenceAdapater) createCredentials() error {
-	// Delete service account keys if any exist
-	// TODO(MJ): If this gets executed it breaks all existing jwt grants/tokens.
-	// re-think this part
-	// err = gClient.DeleteServiceAccountKeys(serviceAccount.Email)
-	// if err != nil {
-	// 	reqLogger.Error(err, "could delete service account key", "Service Account Name", serviceAccount.Email)
-	// 	return reconcile.Result{}, err
-	// }
-
+func (r *ReferenceAdapter) createCredentials() error {
 	var serviceAccount *iam.ServiceAccount
 	serviceAccount, err := r.gcpClient.GetServiceAccount(osdServiceAccountName)
 	if err != nil {
@@ -246,7 +244,7 @@ func (r *ReferenceAdapater) createCredentials() error {
 	r.logger.Info("Creating Service AccountKey")
 	key, err := r.gcpClient.CreateServiceAccountKey(serviceAccount.Email)
 	if err != nil {
-		r.logger.Error(err, "could create service account key", "Service Account Name", serviceAccount.Email)
+		r.logger.Error(err, "could not create service account key", "Service Account Name", serviceAccount.Email)
 		return err
 	}
 
@@ -280,7 +278,7 @@ type AddorUpdateBindingResponse struct {
 }
 
 // AddOrUpdateBindings gets the policy and checks if the bindings match the required roles
-func (r *ReferenceAdapater) AddOrUpdateBindings(serviceAccountEmail string) (AddorUpdateBindingResponse, error) {
+func (r *ReferenceAdapter) AddOrUpdateBindings(serviceAccountEmail string) (AddorUpdateBindingResponse, error) {
 	policy, err := r.gcpClient.GetIamPolicy(r.projectReference.Spec.GCPProjectID)
 	if err != nil {
 		return AddorUpdateBindingResponse{}, err
@@ -298,7 +296,7 @@ func (r *ReferenceAdapater) AddOrUpdateBindings(serviceAccountEmail string) (Add
 }
 
 // SetIAMPolicy attempts to update policy if the policy needs to be modified
-func (r *ReferenceAdapater) SetIAMPolicy(serviceAccountEmail string) error {
+func (r *ReferenceAdapter) SetIAMPolicy(serviceAccountEmail string) error {
 	// Checking if policy needs to be updated
 	var retry int
 	for {
