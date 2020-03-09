@@ -195,7 +195,6 @@ func (r *ReferenceAdapter) configureAPIS() error {
 	}
 
 	r.logger.Info("Linking Cloud Billing Account")
-	// https://groups.google.com/forum/#!topic/gce-discussion/K_x9E0VIckk
 	err = r.gcpClient.CreateCloudBillingAccount(r.projectReference.Spec.GCPProjectID, config.BillingAccount)
 	if err != nil {
 		r.logger.Error(err, "error creating CloudBilling")
