@@ -11,6 +11,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	gcpv1alpha1 "github.com/openshift/gcp-project-operator/pkg/apis/gcp/v1alpha1"
+	"github.com/openshift/gcp-project-operator/pkg/configmap"
 	"github.com/openshift/gcp-project-operator/pkg/gcpclient"
 	"github.com/openshift/gcp-project-operator/pkg/util"
 	operrors "github.com/openshift/gcp-project-operator/pkg/util/errors"
@@ -116,7 +117,10 @@ func getMatchingClaimLink(projectReference *gcpv1alpha1.ProjectReference, client
 func (r *ReferenceAdapter) updateProjectID() error {
 	guid := uuid.New().String()
 	hashing := sha1.New()
-	hashing.Write([]byte(guid))
+	_, err := hashing.Write([]byte(guid))
+	if err != nil {
+		return err
+	}
 	uuidsum := fmt.Sprintf("%x", hashing.Sum(nil))
 	shortuuid := uuidsum[0:26]
 	r.projectReference.Spec.GCPProjectID = "osd-" + shortuuid
@@ -177,9 +181,9 @@ func (r *ReferenceAdapter) createProject(parentFolderID string) error {
 }
 
 func (r *ReferenceAdapter) configureAPIS() error {
-	billingAccount, err := util.GetBillingAccountFromSecret(r.kubeClient, operatorNamespace, orgGcpSecretName)
+	config, err := r.getConfigMap()
 	if err != nil {
-		r.logger.Error(err, "Could not get org billingAccount from secret", "Secret Name", orgGcpSecretName, "Operator Namespace", operatorNamespace)
+		r.logger.Error(err, "Could not get ConfigMap", "Operator Namespace", operatorNamespace)
 		return err
 	}
 
@@ -192,7 +196,7 @@ func (r *ReferenceAdapter) configureAPIS() error {
 
 	r.logger.Info("Linking Cloud Billing Account")
 	// https://groups.google.com/forum/#!topic/gce-discussion/K_x9E0VIckk
-	err = r.gcpClient.CreateCloudBillingAccount(r.projectReference.Spec.GCPProjectID, string(billingAccount))
+	err = r.gcpClient.CreateCloudBillingAccount(r.projectReference.Spec.GCPProjectID, config.BillingAccount)
 	if err != nil {
 		r.logger.Error(err, "error creating CloudBilling")
 		return err
@@ -207,6 +211,20 @@ func (r *ReferenceAdapter) configureAPIS() error {
 	}
 
 	return nil
+}
+
+func (r *ReferenceAdapter) getConfigMap() (configmap.OperatorConfigMap, error) {
+	operatorConfigMap, err := configmap.GetOperatorConfigMap(r.kubeClient)
+	if err != nil {
+		r.logger.Error(err, "could not find the OperatorConfigMap")
+		return operatorConfigMap, err
+	}
+
+	if err := configmap.ValidateOperatorConfigMap(operatorConfigMap); err != nil {
+		r.logger.Error(err, "configmap didn't get filled properly")
+		return operatorConfigMap, err
+	}
+	return operatorConfigMap, err
 }
 
 func (r *ReferenceAdapter) configureSeriveAccount() error {
@@ -274,7 +292,6 @@ func (r *ReferenceAdapter) createCredentials() error {
 type AddorUpdateBindingResponse struct {
 	modified bool
 	policy   *cloudresourcemanager.Policy
-	bindings []*cloudresourcemanager.Binding
 }
 
 // AddOrUpdateBindings gets the policy and checks if the bindings match the required roles

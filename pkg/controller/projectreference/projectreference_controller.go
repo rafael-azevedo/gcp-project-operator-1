@@ -190,15 +190,14 @@ func (r *ReconcileProjectReference) Reconcile(request reconcile.Request) (reconc
 		return r.requeue()
 	}
 
-	//TODO() add configmap to ReferenceAdapter
-	parentFolderID, err := util.GetGCPParentFolderFromConfigMap(r.client, operatorNamespace, orgGcpConfigMap)
+	configMap, err := adapter.getConfigMap()
 	if err != nil {
-		reqLogger.Error(err, "could not get orgParentFolderID from the ConfigMap:", orgGcpConfigMap, "Operator Namespace", operatorNamespace)
+		reqLogger.Error(err, "could not get ConfigMap:", orgGcpConfigMap, "Operator Namespace", operatorNamespace)
 		return r.requeueOnErr(err)
 	}
 
 	reqLogger.Info("Configuring Project")
-	err = adapter.createProject(parentFolderID)
+	err = adapter.createProject(configMap.ParentFolderID)
 	if err != nil {
 		if err == operrors.ErrInactiveProject {
 			log.Error(err, "Unrecoverable Error")
