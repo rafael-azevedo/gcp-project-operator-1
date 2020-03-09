@@ -188,3 +188,50 @@ func InArray(needle interface{}, haystack interface{}) (exists bool, index int) 
 
 	return
 }
+
+func GetBillingAccountFromSecret(kubeClient kubeclientpkg.Client, namespace, name string) ([]byte, error) {
+	secret := &corev1.Secret{}
+	err := kubeClient.Get(context.TODO(),
+		kubetypes.NamespacedName{
+			Namespace: namespace,
+			Name:      name,
+		},
+		secret)
+	if err != nil {
+		return []byte{}, fmt.Errorf("clusterdeployment.getBillingAccountFromSecret.Get %v", err)
+	}
+
+	billingAccount, ok := secret.Data["billingaccount"]
+	if !ok {
+		return []byte{}, fmt.Errorf("GCP credentials secret %v did not contain key %v",
+			name, "billingaccount")
+	}
+
+	return billingAccount, nil
+}
+
+// getConfigMap returns a configmap
+func getConfigMap(kubeClient client.Client, name, namespace string) (*corev1.ConfigMap, error) {
+	c := &corev1.ConfigMap{}
+	if err := kubeClient.Get(context.TODO(), kubetypes.NamespacedName{Name: name, Namespace: namespace}, c); err != nil {
+		return &corev1.ConfigMap{}, err
+	}
+
+	return c, nil
+}
+
+// GetGCPParentFolderFromConfigMap returns orgParentFolderID if the value exists in configmap
+func GetGCPParentFolderFromConfigMap(kubeClient kubeclientpkg.Client, name, namespace string) (string, error) {
+	configmap, err := getConfigMap(kubeClient, name, namespace)
+	if err != nil {
+		return "", fmt.Errorf("clusterdeployment.GetGCPParentFolderFromConfigMap.Get %v", err)
+	}
+
+	orgParentFolderIDconfig, ok := configmap.Data["orgParentFolderID"]
+	if !ok {
+		return "", fmt.Errorf("GCP configmap %v did not contain key %v",
+			name, "orgParentFolderID")
+	}
+
+	return orgParentFolderIDconfig, nil
+}
