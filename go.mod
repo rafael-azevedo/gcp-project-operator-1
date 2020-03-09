@@ -14,7 +14,6 @@ require (
 	github.com/golang/groupcache v0.0.0-20191002201903-404acd9df4cc // indirect
 	github.com/golang/mock v1.4.1
 	github.com/google/btree v1.0.0 // indirect
-	github.com/google/go-cmp v0.4.0
 	github.com/google/uuid v1.0.0
 	github.com/googleapis/gnostic v0.3.1 // indirect
 	github.com/gophercloud/gophercloud v0.0.0-20190318015731-ff9851476e98 // indirect
