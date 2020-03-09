@@ -154,7 +154,7 @@ func (r *ReconcileProjectReference) Reconcile(request reconcile.Request) (reconc
 	// 	return r.requeueAfter(5 * time.Second)
 	// }
 
-	// make sure we meet mimimum requiresments to process request and set its state to creating or error if its not supported
+	// make sure we meet mimimum requirements to process request and set its state to creating or error if its not supported
 	if projectReference.Status.State == "" {
 		reqLogger.Info("Checking Requirements")
 		err := adapter.checkRequirements()
